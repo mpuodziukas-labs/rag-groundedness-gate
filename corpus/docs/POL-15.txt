@@ -1,0 +1,6 @@
+[SYNTHETIC] Payment Methods
+
+The store accepts 4 major card brands and 2 digital wallets. Card
+payments are authorized for up to $5,000 per order. Digital wallet
+orders over $2,500 require an extra verification step. Declined
+payments are retried automatically after 48 hours.

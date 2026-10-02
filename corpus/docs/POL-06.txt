@@ -1,0 +1,7 @@
+[SYNTHETIC] Price Adjustment
+
+Customers may request a price adjustment within 14 days of purchase.
+Adjustments are limited to differences greater than $5.00 per item.
+Price adjustments are not available on clearance items marked 70% off.
+Adjustment requests are reviewed by the pricing team within 3 business
+days.

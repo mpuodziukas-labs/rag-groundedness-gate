@@ -1,0 +1,7 @@
+[SYNTHETIC] Sales Tax
+
+Sales tax of up to 9% is calculated at checkout using the delivery
+address. Tax exempt customers must upload a certificate valid through
+December 31, 2026. Exemption certificates are reviewed within 3
+business days. Tax is refunded in full when an order is returned
+within 30 days.

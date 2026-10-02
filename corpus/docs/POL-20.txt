@@ -1,0 +1,7 @@
+[SYNTHETIC] Data Retention
+
+Order records are kept for 7 years to meet bookkeeping rules. Support
+chat transcripts are deleted after 180 days. Marketing preferences are
+retained until the customer unsubscribes or 36 months pass. Backups
+are rotated every 30 days and removed on a schedule ending June 30,
+2026.

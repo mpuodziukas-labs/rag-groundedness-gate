@@ -1,0 +1,7 @@
+[SYNTHETIC] Refund Timing
+
+Approved refunds reach the original payment method within 7 business
+days. Refunds under $15.00 are issued as store credit instead of a
+card refund. Customers receive a refund confirmation email within 24
+hours of approval. Refunds for orders paid in cash at a store are
+capped at $500 per visit.

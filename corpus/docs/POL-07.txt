@@ -1,0 +1,6 @@
+[SYNTHETIC] Gift Cards
+
+Gift cards are issued in amounts from $10 to $500. Gift cards never
+expire but lose a dormancy fee of $2.00 after 24 months. Lost gift
+cards can be replaced only with proof of purchase within 90 days. Gift
+cards cannot be redeemed for cash except where balances fall below $5.

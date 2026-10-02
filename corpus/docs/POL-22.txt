@@ -1,0 +1,6 @@
+[SYNTHETIC] Store Hours
+
+Stores open at 9 AM and close at 8 PM from Monday to Saturday. Sunday
+hours run from 11 AM to 5 PM. The flagship store stays open until 10
+PM on 6 peak weekends each year. Curbside pickup orders are held for 3
+days.

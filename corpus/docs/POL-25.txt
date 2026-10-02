@@ -1,0 +1,6 @@
+[SYNTHETIC] Escalations
+
+Unresolved cases escalate to a supervisor after 3 business days.
+Supervisors contact the customer within 1 business day of escalation.
+Compensation above $100 requires manager approval. Escalation records
+are reviewed every quarter, starting July 1, 2026.

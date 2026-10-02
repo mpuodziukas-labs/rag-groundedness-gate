@@ -1,0 +1,6 @@
+[SYNTHETIC] Order Changes
+
+Shipping addresses can be edited for up to 4 hours or until the order
+status reads packed. Address changes after packing carry a fee of
+$6.00. Item swaps are allowed within 1 hour of checkout. Orders edited
+after June 15, 2026 may lose their promotional price.

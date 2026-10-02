@@ -1,0 +1,7 @@
+[SYNTHETIC] Express Shipping
+
+Express shipping costs $14.99 and arrives within 2 business days.
+Overnight delivery is available for $29.99 on orders placed before
+noon. Express orders over $200 receive a shipping discount of 50%.
+Express shipping is paused from December 24, 2026 through December 26,
+2026.

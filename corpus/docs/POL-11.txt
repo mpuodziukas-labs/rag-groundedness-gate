@@ -1,0 +1,6 @@
+[SYNTHETIC] Repairs
+
+Repair requests are acknowledged within 2 business days. Bench repairs
+cost a flat fee of $45 plus parts. Repairs take about 10 business days
+once the item reaches the depot. Items left at the depot for more than
+60 days are recycled.

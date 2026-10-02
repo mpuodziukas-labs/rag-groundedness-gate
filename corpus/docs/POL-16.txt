@@ -1,0 +1,6 @@
+[SYNTHETIC] Installment Plans
+
+Orders above $300 can be split into 4 equal installments. Installment
+plans carry no interest when paid within 6 weeks. A late installment
+adds a fee of $7.00 after a grace period of 5 days. New installment
+plans are paused between November 27, 2026 and November 30, 2026.

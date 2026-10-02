@@ -1,0 +1,6 @@
+[SYNTHETIC] Bulk Orders
+
+Orders of 50 units or more qualify for bulk pricing. Bulk discounts
+start at 8% and reach 20% at 500 units. Bulk orders ship in 15
+business days after a signed quote. Quotes are valid for 30 days from
+the issue date.

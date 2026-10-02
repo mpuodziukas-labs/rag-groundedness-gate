@@ -1,0 +1,6 @@
+[SYNTHETIC] Account Security
+
+Passwords must contain at least 12 characters. Accounts lock for 15
+minutes after 5 failed sign in attempts. Customers are asked to
+confirm their identity every 90 days. Security notices are emailed
+within 1 hour of a suspicious sign in.

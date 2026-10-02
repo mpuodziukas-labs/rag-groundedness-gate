@@ -1,0 +1,6 @@
+[SYNTHETIC] Late Fees
+
+Business invoices are due 30 days after the invoice date. Overdue
+balances accrue a late fee of 1.5% per month. Accounts more than 60
+days overdue are placed on hold. The minimum late fee is $10 for any
+overdue invoice.

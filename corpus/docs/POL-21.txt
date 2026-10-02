@@ -1,0 +1,6 @@
+[SYNTHETIC] Privacy Requests
+
+Customers may request a copy of their data once every 12 months.
+Privacy requests are answered within 30 days of identity verification.
+Deletion requests remove marketing data within 14 days. Verified
+requests received before January 15, 2026 follow the earlier process.

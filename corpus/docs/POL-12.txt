@@ -1,0 +1,6 @@
+[SYNTHETIC] Order Cancellation
+
+Orders can be cancelled at no cost within 2 hours of checkout.
+Cancellations after shipment incur a handling fee of $8.50. Cancelled
+orders are refunded within 5 business days. Custom engraved orders
+cannot be cancelled after 24 hours.

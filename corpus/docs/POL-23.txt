@@ -1,0 +1,6 @@
+[SYNTHETIC] Holiday Schedule
+
+All stores close on December 25, 2026 and January 1, 2027. Support is
+available for 4 hours on Thanksgiving Day. Holiday shipping deadlines
+are posted by November 1, 2026. Stores open 2 hours early on the day
+after Thanksgiving.

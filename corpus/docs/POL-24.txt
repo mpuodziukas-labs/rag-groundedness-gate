@@ -1,0 +1,6 @@
+[SYNTHETIC] Support Response Times
+
+Email support replies within 24 hours on business days. Phone support
+answers calls within 5 minutes on average. Chat support is staffed
+from 8 AM to 10 PM on weekdays. Priority customers receive a reply
+within 4 hours.
