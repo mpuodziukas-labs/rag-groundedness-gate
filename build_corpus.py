@@ -25,6 +25,7 @@ import gate
 SEED = "synthetic-rag-groundedness-v1"
 PER_CLASS = 15
 GROUNDED_SINGLE, GROUNDED_SAME_DOC, GROUNDED_TWO_DOCS = 52, 26, 26
+GROUNDED_RESPELLED, GROUNDED_LISTS, GROUNDED_INVISIBLE = 20, 15, 10
 
 # (doc id, title, four fact sentences). Fictional company: Larkspur and Pine.
 # Rules for authors: no double quotes, no inner sentence periods except decimals,
@@ -240,6 +241,46 @@ SWAPS = [
 ]
 LEAD_INS = ["", "Per our policy: ", "Our policy states: "]
 
+# Numberless claims about things no policy doc says (used by unrelated_citation).
+UNRELATED = [
+    "Gold members enjoy a private lounge with fresh coffee",
+    "The flagship store hosts a weekly jazz evening",
+    "Employees receive a company bicycle after their first year",
+    "Our headquarters runs entirely on wind power",
+    "Visitors can tour the roastery on Saturday mornings",
+    "The mobile app supports a dark theme",
+    "Every new location plants a tree on opening day",
+    "Staff wear green aprons during the holiday season",
+    "The founder started the company in a small garage",
+    "Gift wrapping uses recycled paper and linen ribbon",
+    "The loyalty club hosts an annual picnic by the lake",
+    "New locations feature local art on the walls",
+    "The warehouse cats keep the packing floor quiet",
+    "Seasonal playlists are curated by the managers",
+    "Cooking classes run in the downtown kitchen",
+]
+
+_ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+         "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+_TENS = {2: "twenty", 3: "thirty", 4: "forty", 5: "fifty", 6: "sixty", 7: "seventy", 8: "eighty", 9: "ninety"}
+_HOMOGLYPH = {"o": "\u043e", "e": "\u0435", "a": "\u0430", "i": "\u0456"}
+
+
+def int_words(n: int) -> str:
+    """0..99 in English words ("twenty-five")."""
+    if n < 20:
+        return _ONES[n]
+    tens, ones = divmod(n, 10)
+    return _TENS[tens] + (f"-{_ONES[ones]}" if ones else "")
+
+
+def disguise(word: str) -> str:
+    """Swap the first Latin letter that has a Cyrillic twin for it."""
+    for i, ch in enumerate(word):
+        if ch in _HOMOGLYPH:
+            return word[:i] + _HOMOGLYPH[ch] + word[i + 1:]
+    raise AssertionError(word)
+
 
 def rng_for(name: str) -> random.Random:
     return random.Random(f"{SEED}:{name}")
@@ -331,6 +372,53 @@ def grounded_records(rng: random.Random) -> list[dict]:
                          retrieved=retrieved_with(rng, [d1, d2]),
                          answer=f"{sentence(rng, d1, f1)} {sentence(rng, d2, f2)}",
                          expect_reason=None, bad_sentence=None))
+
+    # Variants that a naive hardening would wrongly block: kept in the grounded split so
+    # false positives on them are reported, not hidden.
+    pool = [(d, f) for d, _, fs in docs for f in fs]
+
+    def variant(name: str, doc_list: list[str], answer: str) -> None:
+        nonlocal n
+        n += 1
+        recs.append(dict(id=f"G-{n:03d}", split="grounded", **{"class": "grounded"}, variant=name,
+                         retrieved=retrieved_with(rng, doc_list), answer=answer,
+                         expect_reason=None, bad_sentence=None))
+
+    def respelled(fact: str) -> str | None:
+        m = first_number_span(fact)
+        tok = m.group(0)
+        if re.fullmatch(r"\d{1,2}", tok):
+            new = int_words(int(tok))
+        elif re.fullmatch(r"\$\d{1,3}", tok):
+            new = f"{tok[1:]} dollars"
+        elif re.fullmatch(r"\d{1,2}%", tok):
+            new = f"{tok[:-1]} percent"
+        else:
+            return None
+        return fact[: m.start()] + new + fact[m.end():]
+
+    made = 0
+    for doc, fact in rng.sample(pool, len(pool)):
+        text = respelled(fact)
+        if text is None:
+            continue
+        variant("number_respelled", [doc], claim(rng.choice(LEAD_INS), strip_period(text), doc, strip_period(fact)))
+        made += 1
+        if made == GROUNDED_RESPELLED:
+            break
+    assert made == GROUNDED_RESPELLED
+
+    for i in range(GROUNDED_LISTS):
+        (d1, f1), (d2, f2) = rng.sample(pool, 2)
+        a = claim("", strip_period(f1), d1, strip_period(f1))
+        b = claim("", strip_period(f2), d2, strip_period(f2))
+        kind = i % 3
+        answer = (f"- {a}\n- {b}", f"1. {a}\n2. {b}", f"{a}\n{b}")[kind]
+        variant(("bulleted_list", "numbered_list", "line_per_claim")[kind], [d1, d2], answer)
+
+    for doc, fact in rng.sample(pool, GROUNDED_INVISIBLE):
+        quote = strip_period(fact).replace(" ", " \u200b", 1)
+        variant("invisible_char_in_quote", [doc], claim(rng.choice(LEAD_INS), strip_period(fact), doc, quote))
     return recs
 
 
@@ -426,6 +514,91 @@ def ungrounded_records() -> list[dict]:
         quote = fact[: first_number_span(fact).start()].strip()
         emit("number_outside_quote", rng, i, doc,
              claim(rng.choice(LEAD_INS), strip_period(fact), doc, quote), with_distractor(rng, doc))
+
+    # number_word_evasion: the claim spells a different number as a word; the quote has the real one
+    rng = rng_for("number_word_evasion")
+    plain = [(d, f) for d, f in pool if re.fullmatch(r"\d{1,2}", first_number_span(f).group(0))]
+    for i, (doc, fact) in enumerate(rng.sample(plain, PER_CLASS)):
+        m = first_number_span(fact)
+        k = rng.randint(2, 9)
+        while (int(m.group(0)) + k > 99
+               or gate.number_in_text(f"num:{int(m.group(0)) + k}", text_of[doc])):
+            k += 1
+        text = strip_period(fact[: m.start()] + int_words(int(m.group(0)) + k) + fact[m.end():])
+        emit("number_word_evasion", rng, i, doc,
+             claim(rng.choice(LEAD_INS), text, doc, strip_period(fact)), with_distractor(rng, doc))
+
+    # number_kind_mismatch: the digits match but the unit or sign does not ($ vs euro, % vs $, +5 vs -5)
+    rng = rng_for("number_kind_mismatch")
+    kinds = [(d, f) for d, f in pool if re.fullmatch(r"\$\d[\d,]*(?:\.\d+)?|\d+%", first_number_span(f).group(0))]
+    for i, (doc, fact) in enumerate(rng.sample(kinds, PER_CLASS)):
+        m = first_number_span(fact)
+        tok = m.group(0)
+        if tok.endswith("%"):
+            new = f"${tok[:-1]}"
+        elif i % 2 == 0:
+            new = "\u20ac" + tok[1:]
+        else:
+            new = "-" + tok
+        text = strip_period(fact[: m.start()] + new + fact[m.end():])
+        emit("number_kind_mismatch", rng, i, doc,
+             claim(rng.choice(LEAD_INS), text, doc, strip_period(fact)), with_distractor(rng, doc))
+
+    # short_quote_laundering: a two-word quote that is technically in the doc
+    rng = rng_for("short_quote_laundering")
+    for i, (doc, fact) in enumerate(rng.sample(pool, PER_CLASS)):
+        quote = " ".join(strip_period(fact).split()[:2])
+        emit("short_quote_laundering", rng, i, doc,
+             claim(rng.choice(LEAD_INS), strip_period(fact), doc, quote), with_distractor(rng, doc))
+
+    # quote_spans_sentences: one quote stitched from two neighboring sentences of the same doc
+    rng = rng_for("quote_spans_sentences")
+    stitched = [(d, fs[k], fs[k + 1]) for d, _, fs in docs for k in range(len(fs) - 1)]
+    for i, (doc, a, b) in enumerate(rng.sample(stitched, PER_CLASS)):
+        emit("quote_spans_sentences", rng, i, doc,
+             claim(rng.choice(LEAD_INS), strip_period(a), doc, f"{a} {b}"), with_distractor(rng, doc))
+
+    # subword_quote: the quote starts in the middle of a word, so it is a raw substring of the doc
+    rng = rng_for("subword_quote")
+    for i, (doc, fact) in enumerate(rng.sample(pool, PER_CLASS)):
+        emit("subword_quote", rng, i, doc,
+             claim(rng.choice(LEAD_INS), strip_period(fact), doc, strip_period(fact)[1:]),
+             with_distractor(rng, doc))
+
+    # unrelated_citation: a real quote attached to a claim that has nothing to do with it
+    rng = rng_for("unrelated_citation")
+    for i, text in enumerate(UNRELATED[:PER_CLASS]):
+        doc, fact = rng.choice(pool)
+        emit("unrelated_citation", rng, i, doc,
+             claim("", text, doc, strip_period(fact)), with_distractor(rng, doc))
+
+    # hidden_uncited_sentence: an uncited claim made to look like part of a cited one
+    rng = rng_for("hidden_uncited_sentence")
+    joiners = [("- {u}\n- {g}"), ("1. {u}\n2. {g}"), ("{u}\n{g}"), ("{u}; {g}"), ("{u}.{g}")]
+    for i, text in enumerate(INVENTED[:PER_CLASS]):
+        doc, fact = rng.choice(pool)
+        good = claim("", strip_period(fact), doc, strip_period(fact))
+        recs.append(dict(id=f"hidden_uncited_sentence-{i + 1:02d}", split="ungrounded",
+                         **{"class": "hidden_uncited_sentence"}, retrieved=sorted(with_distractor(rng, doc)),
+                         answer=joiners[i % len(joiners)].format(u=text, g=good),
+                         expect_reason=gate.CLASS_REASON["hidden_uncited_sentence"], bad_sentence=0))
+
+    # citation_only: citations with no claim text at all
+    rng = rng_for("citation_only")
+    for i, (doc, fact) in enumerate(rng.sample(pool, PER_CLASS)):
+        one = cite(doc, strip_period(fact))
+        answer = (one, f"{one}.", f"{one} {one}")[i % 3]
+        recs.append(dict(id=f"citation_only-{i + 1:02d}", split="ungrounded", **{"class": "citation_only"},
+                         retrieved=sorted(with_distractor(rng, doc)), answer=answer,
+                         expect_reason=gate.CLASS_REASON["citation_only"], bad_sentence=0))
+
+    # mixed_script_number: the number is a word with one Cyrillic letter, so it is not read as a number
+    rng = rng_for("mixed_script_number")
+    for i, (doc, fact) in enumerate(rng.sample(plain, PER_CLASS)):
+        m = first_number_span(fact)
+        text = strip_period(fact[: m.start()] + disguise(int_words(int(m.group(0)))) + fact[m.end():])
+        emit("mixed_script_number", rng, i, doc,
+             claim(rng.choice(LEAD_INS), text, doc, strip_period(fact)), with_distractor(rng, doc))
     return recs
 
 

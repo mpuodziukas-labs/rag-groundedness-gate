@@ -46,3 +46,27 @@ def test_mutant_check4_always_pass_is_caught(monkeypatch):
     for cls in ("missing_citation", "unknown_doc", "out_of_retrieval", "fabricated_quote", "paraphrase_drift"):
         assert r.detected[cls] == r.totals[cls], cls
     assert evaluate.main([]) == 1
+
+
+def test_mutant_min_quote_length_removed_is_caught(monkeypatch):
+    monkeypatch.setattr(gate, "MIN_QUOTE_WORDS", 0)
+    r = run_eval()
+    assert r.detected["short_quote_laundering"] < r.totals["short_quote_laundering"]
+    assert r.detected["fabricated_quote"] == r.totals["fabricated_quote"]
+    assert evaluate.main([]) == 1
+
+
+def test_mutant_support_check_removed_is_caught(monkeypatch):
+    monkeypatch.setattr(gate, "MIN_SUPPORT", 0.0)
+    r = run_eval()
+    assert r.detected["unrelated_citation"] < r.totals["unrelated_citation"]
+    assert r.detected["wrong_number"] == r.totals["wrong_number"]
+    assert evaluate.main([]) == 1
+
+
+def test_mutant_mixed_script_check_removed_is_caught(monkeypatch):
+    monkeypatch.setattr(gate, "has_mixed_script_word", lambda text: False)
+    r = run_eval()
+    assert r.detected["mixed_script_number"] < r.totals["mixed_script_number"]
+    assert r.detected["number_word_evasion"] == r.totals["number_word_evasion"]
+    assert evaluate.main([]) == 1

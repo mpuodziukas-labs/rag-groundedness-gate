@@ -29,3 +29,13 @@ def test_readme_has_required_sections():
 
 def test_readme_has_no_em_dash():
     assert chr(0x2014) not in README
+
+
+def test_readme_composition_equals_eval_set():
+    m = re.search(r"<!-- COMPOSITION:BEGIN -->\n(.*?)\n<!-- COMPOSITION:END -->", README, re.S)
+    assert m, "README is missing the COMPOSITION markers"
+    assert m.group(1).strip() == evaluate.composition(evaluate.load_eval(ROOT / "corpus" / "eval.jsonl"))
+
+
+def test_readme_has_no_hand_typed_eval_count():
+    assert "n=209" not in README and "209 labeled" not in README

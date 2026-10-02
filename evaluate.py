@@ -1,9 +1,11 @@
 """Run the eval set through the gate and print the results table.
 
-    python evaluate.py [--corpus DIR] [--eval FILE]
+    python evaluate.py [--corpus DIR] [--eval FILE] [--write-readme]
 
 Prints per-class detection counts (N/N), false positives on the grounded
 split (N/N), and the median per-answer check time in ms, measured on this run.
+--write-readme rewrites the generated blocks of README.md (results table and
+eval-set composition) from this run, so no figure there is typed by hand.
 A detection means the answer was blocked AND the expected reason code was
 reported on the defective sentence.
 Exit codes: 0 all detected and no false positives, 1 any miss or false
@@ -43,9 +45,35 @@ class Results:
         return self.false_positives == 0 and all(self.detected[c] == self.totals[c] for c in self.totals)
 
 
+def validate_record(rec: object, line_no: int) -> dict:
+    """Reject a malformed eval record with a ValueError that names the line."""
+    def bad(msg: str) -> ValueError:
+        return ValueError(f"eval line {line_no}: {msg}")
+
+    if not isinstance(rec, dict):
+        raise bad("record must be a JSON object")
+    if not isinstance(rec.get("answer"), str):
+        raise bad("'answer' must be a string")
+    retrieved = rec.get("retrieved")
+    if not isinstance(retrieved, list) or not all(isinstance(r, str) for r in retrieved):
+        raise bad("'retrieved' must be a list of strings")
+    split = rec.get("split")
+    if split not in ("grounded", "ungrounded"):
+        raise bad("'split' must be 'grounded' or 'ungrounded'")
+    if split == "ungrounded":
+        if rec.get("class") not in gate.CLASS_REASON:
+            raise bad(f"'class' must be one of {sorted(gate.CLASS_REASON)}")
+        if not isinstance(rec.get("expect_reason"), str):
+            raise bad("'expect_reason' must be a string")
+        idx = rec.get("bad_sentence")
+        if not isinstance(idx, int) or isinstance(idx, bool) or idx < 0:
+            raise bad("'bad_sentence' must be an integer >= 0")
+    return rec
+
+
 def load_eval(path: str | Path) -> list[dict]:
     lines = Path(path).read_text(encoding="utf-8").splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
+    return [validate_record(json.loads(line), n) for n, line in enumerate(lines, 1) if line.strip()]
 
 
 def run_eval(records: Sequence[dict], corpus: Mapping[str, str]) -> Results:
@@ -77,10 +105,32 @@ def render_table(res: Results) -> str:
     return "\n".join(rows)
 
 
+def composition(records: Sequence[dict]) -> str:
+    grounded = sum(r["split"] == "grounded" for r in records)
+    classes = len({r["class"] for r in records if r["split"] == "ungrounded"})
+    return (f"n={len(records)}: {grounded} grounded answers, {len(records) - grounded} ungrounded "
+            f"answers across {classes} failure classes")
+
+
+def _swap(text: str, name: str, body: str) -> str:
+    begin, end = f"<!-- {name}:BEGIN -->", f"<!-- {name}:END -->"
+    head, rest = text.split(begin, 1)
+    _, tail = rest.split(end, 1)
+    return f"{head}{begin}\n{body}\n{end}{tail}"
+
+
+def write_readme(path: Path, records: Sequence[dict], res: Results) -> None:
+    text = path.read_text(encoding="utf-8")
+    text = _swap(text, "RESULTS", render_table(res))
+    text = _swap(text, "COMPOSITION", composition(records))
+    path.write_text(text, encoding="utf-8")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Evaluate the groundedness gate on the synthetic eval set.")
     p.add_argument("--corpus", default=str(ROOT / "corpus" / "docs"), help="directory of *.txt docs")
     p.add_argument("--eval", default=str(ROOT / "corpus" / "eval.jsonl"), help="eval set (jsonl)")
+    p.add_argument("--write-readme", action="store_true", help="regenerate the generated blocks of README.md")
     args = p.parse_args(argv)
     try:
         corpus = gate.load_corpus(args.corpus)
@@ -94,6 +144,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     res = run_eval(records, corpus)
     print(render_table(res))
     print()
+    if args.write_readme:
+        write_readme(ROOT / "README.md", records, res)
     print(f"Median per-answer check time: {res.median_ms:.3f} ms over {len(res.times_ms)} answers (measured on this run)")
     return gate.EXIT_PASS if res.clean else gate.EXIT_BLOCKED
 

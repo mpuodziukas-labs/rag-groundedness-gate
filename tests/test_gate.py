@@ -109,8 +109,8 @@ def test_nothing_retrieved_blocks_any_citation():
 # ---- check 3: quote appears verbatim, whitespace-normalized ----------------
 
 def test_quote_with_different_whitespace_passes():
-    quote = "Unused items may be returned within 30 days of delivery for a full refund. Refunds of $12.50 or less"
-    v = run(f"Returns take 30 days and small refunds of $12.50 or less are credit {cite('POL-01', quote)}.")
+    quote = "Refunds  of $12.50\nor less are issued   as store credit"
+    v = run(f"Small refunds of $12.50 or less are store credit {cite('POL-01', quote)}.")
     assert not v.blocked
 
 
@@ -189,20 +189,22 @@ def test_one_bad_citation_among_several_blocks():
 
 def test_extract_numbers_normalizes():
     assert gate.extract_numbers("pay $12.50 and 15 % on March 3, 2026 plus 7 items") == [
-        "$12.50", "15%", "march 3 2026", "7",
+        "usd:12.5", "pct:15", "date:2026-03-03", "num:7",
     ]
-    assert gate.extract_numbers("1,500 units") == ["1500"]
+    assert gate.extract_numbers("1,500 units") == ["num:1500"]
 
 
 @pytest.mark.parametrize(
     "token,text,expected",
     [
-        ("30", "within 130 days", False),
-        ("30", "within 30 days", True),
-        ("50", "costs $50", False),
-        ("$50", "costs $50.00", False),
-        ("$50", "costs $50", True),
-        ("5", "a 5% bonus", False),
+        ("num:30", "within 130 days", False),
+        ("num:30", "within 30 days", True),
+        ("num:50", "costs $50", False),
+        ("usd:50", "costs $50.00", True),
+        ("usd:50", "costs $50", True),
+        ("usd:50", "costs $500", False),
+        ("num:5", "a 5% bonus", False),
+        ("pct:5", "a 5% bonus", True),
     ],
 )
 def test_number_in_text_boundaries(token, text, expected):
