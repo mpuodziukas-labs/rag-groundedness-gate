@@ -15,7 +15,8 @@ one citation of the form [doc:ID "exact quote"] and each citation must pass:
 Normalization applied to answers, quotes and docs before any comparison:
 Unicode NFKC, zero-width and other format characters removed, non-ASCII digits
 folded to 0-9, smart quotes folded to straight quotes. Number words ("thirty",
-"one hundred and twenty") become digits. A claim word that mixes Latin with
+"one hundred and twenty") become digits. Quantity words (dozen, half, twice) must
+appear in the quote. A claim word that mixes Latin with
 Cyrillic or Greek letters is blocked.
 
 Usage:
@@ -190,6 +191,17 @@ _WORD_RUN = re.compile(
 )
 
 
+# Quantity words that are numbers in disguise. Each must appear in the quote as
+# the same word (plural folded) or the sentence is blocked as number_not_in_quote.
+_QWORD_RE = re.compile(
+    r"(?<![\w])(?:dozen|score|fortnight|half|halves|twice|thrice|double|triple|quarter|couple|pair"
+    r"|(?:ten|eleven|twelf|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen"
+    r"|twentie|thirtie|fortie|fiftie|sixtie|seventie|eightie|ninetie|hundred|thousand|million)(?:th))"
+    r"s?(?!\w)",
+    re.IGNORECASE,
+)
+
+
 def _run_value(run: str) -> int | None:
     total = current = 0
     for word in re.findall(r"[a-z]+", run.lower()):
@@ -292,6 +304,9 @@ def extract_numbers(text: str) -> list[str]:
             else:
                 kind = "num"
             tokens.append(f"{kind}:{value}")
+    for m in _QWORD_RE.finditer(clean):
+        w = m.group(0).lower()
+        tokens.append("word:" + ("half" if w == "halves" else w[:-1] if w.endswith("s") and w != "twice" else w))
     return tokens
 
 

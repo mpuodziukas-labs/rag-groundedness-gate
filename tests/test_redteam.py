@@ -458,3 +458,26 @@ def test_evaluate_non_utf8_eval_file_exit_2(tmp_path):
     f = tmp_path / "e.jsonl"
     f.write_bytes(b'{"id": "\xff"}\n')
     assert evaluate.main(["--eval", str(f)]) == 2
+
+
+# ---------------------------------------------------------------------------
+# 7. Quantity words that are numbers in disguise
+# ---------------------------------------------------------------------------
+
+QUANTITY_WORDS = [
+    "a dozen", "two dozen", "a fortnight", "half", "twice", "thrice", "double",
+    "a quarter", "a couple of", "thirtieth", "fifteenth",
+]
+
+
+@pytest.mark.parametrize("word", QUANTITY_WORDS)
+def test_quantity_word_not_in_quote_is_blocked(word):
+    v = run(claim(f"Unused items may be returned within {word} days of delivery for a full refund", RET))
+    assert v.blocked, word
+    assert any(r.code == gate.NUMBER_NOT_IN_QUOTE for s in v.sentences for r in s.reasons)
+
+
+def test_quantity_word_in_quote_is_not_blocked():
+    quote = "Unused items may be returned within a dozen days of delivery for a full refund"
+    v = gate.check_answer(f'{quote} [doc:D-1 "{quote}"].', {"D-1": quote}, ["D-1"])
+    assert not v.blocked

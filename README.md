@@ -135,7 +135,8 @@ green, so a passing eval cannot be vacuous.
    `$1000` and "1000 dollars" agree, and `5%` equals "5 percent". A lone "one"
    is treated as a pronoun, not a number, and a bare "May" is not read as a
    month. `03/04/2026` is read as month/day. Dates in other forms may be
-   missed.
+   missed. Relative spans with no number, such as "a month" for "30 days", are
+   not checked.
 6. **Sentence splitting is rule-based.** Lines, bullets, semicolons and
    terminators split sentences, with a guard for a short list of abbreviations.
    An abbreviation outside that list can split a sentence in two, which fails
@@ -160,7 +161,7 @@ green, so a passing eval cannot be vacuous.
 | 1 | the sentence carries a citation and claim text of its own | `missing_citation`, `malformed_citation`, `empty_claim` |
 | 2 | the cited doc ID exists in the corpus | `unknown_doc` |
 | 3 | the quote is verbatim in that doc (whitespace-normalized, case-sensitive, on word boundaries, inside one doc sentence, at least 3 words) | `quote_not_verbatim`, `empty_quote`, `quote_too_short` |
-| 4 | every number, money amount, percent and date in the sentence appears inside the cited quote(s), compared by value | `number_not_in_quote` |
+| 4 | every number, money amount, percent and date in the sentence, and every quantity word (dozen, half, twice, fortnight, "thirtieth"), appears inside the cited quote(s), compared by value | `number_not_in_quote` |
 | 5 | the cited doc is in the retrieved set passed with the answer | `out_of_retrieval` |
 | 6 | at least half of the claim's content words appear in the cited quote(s); no word mixes Latin with Cyrillic or Greek letters | `claim_not_in_quote`, `mixed_script_text` |
 
@@ -179,6 +180,7 @@ Verdict shape:
 {
   "verdict": "blocked",
   "sentence_count": 1,
+  "sentences_listed": 1,
   "answer_reasons": [],
   "sentences": [
     {
