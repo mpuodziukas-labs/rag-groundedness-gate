@@ -1,5 +1,9 @@
 # RAG Groundedness Gate
 
+Proves: RAG evaluation and groundedness guardrails. Verify in 60s: `python3 evaluate.py`.
+
+![CI](https://github.com/mpuodziukas-labs/rag-groundedness-gate/actions/workflows/ci.yml/badge.svg)
+
 A support or finance assistant that quotes policy and numbers is one invented
 number away from real money and lost trust: a refund amount, a fee, a deadline
 that is not in the source. This gate checks a RAG answer before it reaches a
