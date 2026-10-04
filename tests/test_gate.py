@@ -122,8 +122,13 @@ def test_altered_word_in_quote_blocks():
 
 
 def test_case_change_in_quote_blocks():
-    v = run(f"Items may be returned within 30 days {cite('POL-01', Q_RET.lower())}.")
+    v = run(f"Items may be returned within 30 days {cite('POL-01', Q_RET.replace('items', 'ITEMS'))}.")
     assert codes(v) == [gate.QUOTE_NOT_VERBATIM]
+
+
+def test_first_letter_case_of_a_quote_is_forgiven():
+    v = run(f"Items may be returned within 30 days {cite('POL-01', Q_RET[0].lower() + Q_RET[1:])}.")
+    assert not v.blocked
 
 
 def test_empty_quote_blocks():

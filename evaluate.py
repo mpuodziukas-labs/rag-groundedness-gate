@@ -34,6 +34,9 @@ class Results:
     detected: dict[str, int]
     grounded_total: int
     false_positives: int
+    paraphrase_total: int = 0
+    paraphrase_blocked: int = 0
+    paraphrase_unexpected: int = 0   # blocked paraphrases not listed as known_blocked
     times_ms: list[float] = field(default_factory=list)
 
     @property
@@ -42,7 +45,7 @@ class Results:
 
     @property
     def clean(self) -> bool:
-        return self.false_positives == 0 and all(self.detected[c] == self.totals[c] for c in self.totals)
+        return self.false_positives == 0 and self.paraphrase_unexpected == 0 and all(self.detected[c] == self.totals[c] for c in self.totals)
 
 
 def validate_record(rec: object, line_no: int) -> dict:
@@ -76,7 +79,15 @@ def load_eval(path: str | Path) -> list[dict]:
     return [validate_record(json.loads(line), n) for n, line in enumerate(lines, 1) if line.strip()]
 
 
-def run_eval(records: Sequence[dict], corpus: Mapping[str, str]) -> Results:
+def load_paraphrase(path: str | Path) -> list[dict]:
+    """Accurate rewordings (same shape as the grounded split plus known_blocked); [] if the file is absent."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def run_eval(records: Sequence[dict], corpus: Mapping[str, str], paraphrase: Sequence[dict] = ()) -> Results:
     totals = {c: 0 for c in gate.CLASS_REASON}
     detected = {c: 0 for c in gate.CLASS_REASON}
     grounded_total = false_positives = 0
@@ -94,7 +105,12 @@ def run_eval(records: Sequence[dict], corpus: Mapping[str, str]) -> Results:
         bad = verdict.sentences[rec["bad_sentence"]] if rec["bad_sentence"] < len(verdict.sentences) else None
         if verdict.blocked and bad and rec["expect_reason"] in [r.code for r in bad.reasons]:
             detected[cls] += 1
-    return Results(totals, detected, grounded_total, false_positives, times)
+    blocked = unexpected = 0
+    for rec in paraphrase:
+        verdict = gate.check_answer(rec["answer"], corpus, rec["retrieved"])
+        blocked += verdict.blocked
+        unexpected += verdict.blocked and not rec["known_blocked"]
+    return Results(totals, detected, grounded_total, false_positives, len(paraphrase), blocked, unexpected, times)
 
 
 def render_table(res: Results) -> str:
@@ -102,6 +118,8 @@ def render_table(res: Results) -> str:
     rows += [f"| {c} | {res.detected[c]}/{res.totals[c]} |" for c in res.totals]
     rows.append(f"| Ungrounded total | {sum(res.detected.values())}/{sum(res.totals.values())} |")
     rows.append(f"| False positives (grounded split) | {res.false_positives}/{res.grounded_total} |")
+    if res.paraphrase_total:
+        rows.append(f"| False positives (paraphrase split) | {res.paraphrase_blocked}/{res.paraphrase_total} |")
     return "\n".join(rows)
 
 
@@ -130,18 +148,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Evaluate the groundedness gate on the synthetic eval set.")
     p.add_argument("--corpus", default=str(ROOT / "corpus" / "docs"), help="directory of *.txt docs")
     p.add_argument("--eval", default=str(ROOT / "corpus" / "eval.jsonl"), help="eval set (jsonl)")
+    p.add_argument("--paraphrase", default=str(ROOT / "corpus" / "paraphrase.jsonl"),
+                   help="accurate-paraphrase split (jsonl); skipped if absent")
     p.add_argument("--write-readme", action="store_true", help="regenerate the generated blocks of README.md")
     args = p.parse_args(argv)
     try:
         corpus = gate.load_corpus(args.corpus)
         records = load_eval(args.eval)
+        paraphrase = load_paraphrase(args.paraphrase)
     except (gate.CorpusError, OSError, ValueError) as exc:
         print(f"evaluate: {exc}", file=sys.stderr)
         return gate.EXIT_USAGE
     if not records:
         print("evaluate: eval set is empty; refusing to report a vacuous pass", file=sys.stderr)
         return gate.EXIT_USAGE
-    res = run_eval(records, corpus)
+    res = run_eval(records, corpus, paraphrase)
     print(render_table(res))
     print()
     if args.write_readme:

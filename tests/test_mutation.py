@@ -58,6 +58,7 @@ def test_mutant_min_quote_length_removed_is_caught(monkeypatch):
 
 def test_mutant_support_check_removed_is_caught(monkeypatch):
     monkeypatch.setattr(gate, "MIN_SUPPORT", 0.0)
+    monkeypatch.setattr(gate, "MAX_NOVEL", 10**6)
     r = run_eval()
     assert r.detected["unrelated_citation"] < r.totals["unrelated_citation"]
     assert r.detected["wrong_number"] == r.totals["wrong_number"]
@@ -70,3 +71,13 @@ def test_mutant_mixed_script_check_removed_is_caught(monkeypatch):
     assert r.detected["mixed_script_number"] < r.totals["mixed_script_number"]
     assert r.detected["number_word_evasion"] == r.totals["number_word_evasion"]
     assert evaluate.main([]) == 1
+
+
+def test_mutant_novel_word_cap_removed_is_caught(monkeypatch):
+    """Without the cap, appended facts built from a few invented words pass (hostile finding H3)."""
+    monkeypatch.setattr(gate, "MAX_NOVEL", 10**6)
+    monkeypatch.setattr(gate, "MIN_SUPPORT", 0.0)
+    answer = ('Standard shipping costs $5.99, arrives in 3 to 5 business days, never refundable '
+              '[doc:POL-03 "Standard shipping costs $5.99 and arrives in 3 to 5 business days"].')
+    v = gate.check_answer(answer, gate.load_corpus(ROOT / "corpus" / "docs"), ["POL-03"])
+    assert not v.blocked

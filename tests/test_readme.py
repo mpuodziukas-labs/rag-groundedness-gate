@@ -16,7 +16,8 @@ def test_readme_results_table_equals_evaluate_output():
     m = re.search(r"<!-- RESULTS:BEGIN -->\n(.*?)\n<!-- RESULTS:END -->", README, re.S)
     assert m, "README is missing the RESULTS markers"
     results = evaluate.run_eval(evaluate.load_eval(ROOT / "corpus" / "eval.jsonl"),
-                                gate.load_corpus(ROOT / "corpus" / "docs"))
+                                gate.load_corpus(ROOT / "corpus" / "docs"),
+                                evaluate.load_paraphrase(ROOT / "corpus" / "paraphrase.jsonl"))
     assert m.group(1).strip() == evaluate.render_table(results).strip()
 
 

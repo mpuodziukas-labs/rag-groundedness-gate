@@ -78,6 +78,7 @@ is reported on the defective sentence. All figures are counts out of totals.
 | mixed_script_number | 15/15 |
 | Ungrounded total | 240/240 |
 | False positives (grounded split) | 0/149 |
+| False positives (paraphrase split) | 2/15 |
 <!-- RESULTS:END -->
 
 Median per-answer check time is measured by `evaluate.py` on every run and
@@ -116,8 +117,8 @@ this table ever differs from what `evaluate.py` prints.
 > for, not that they generalize. See [Limitations](#limitations).
 
 Mutation proof: the tests monkeypatch the verbatim-quote check, the
-numbers-inside-quote check, the minimum quote length, the support threshold and
-the mixed-script check to always pass, and assert that the evaluation then
+numbers-inside-quote check, the minimum quote length, the support threshold,
+the novel-word cap and the mixed-script check to always pass, and assert that the evaluation then
 reports missed detections and exits nonzero. The unmutated control stays fully
 green, so a passing eval cannot be vacuous.
 
@@ -127,8 +128,9 @@ green, so a passing eval cannot be vacuous.
    and grew together, so N/N here measures coverage of known failure shapes,
    not real-world recall. Real traffic has phrasing and formats not covered.
 2. **No semantic entailment.** Check 6 is a lexical heuristic: at least half of
-   the claim's content words must appear in the quote. A claim that reuses the
-   quote's words but means something else passes.
+   the claim's content words must appear in the quote, and at most one content
+   word may be absent from it. Digits do not count toward either. A claim that
+   reuses the quote's words but means something else passes.
 3. **Negation is not detected.** "Refunds are not allowed" citing a quote that
    says refunds are allowed passes when the words and numbers overlap. A test
    pins this behavior.
@@ -156,6 +158,15 @@ green, so a passing eval cannot be vacuous.
 10. **Median timing is hardware dependent** and measured on small docs. Longer
     documents cost more, linearly in document length.
 
+11. **Synonym paraphrase is blocked.** A faithful reword that swaps two or more
+    content words for synonyms ("get ... loyalty points" for "earn ... in points")
+    exceeds the novel-word cap and is blocked. The paraphrase split reports this
+    as a false-positive row; two of its rows are pinned as known blocked.
+12. **A sentence citing two quotes is checked clause by clause.** Clauses split at
+    commas followed by a word and at "and", "but", "while", "plus". Each number
+    must sit in a quote that by itself covers half of its clause's content words.
+    A clause that leans on two quotes at once is blocked.
+
 ## How it works
 
 `gate.py` runs six checks per claim sentence and returns every reason it finds.
@@ -165,13 +176,15 @@ green, so a passing eval cannot be vacuous.
 | 1 | the sentence carries a citation and claim text of its own | `missing_citation`, `malformed_citation`, `empty_claim` |
 | 2 | the cited doc ID exists in the corpus | `unknown_doc` |
 | 3 | the quote is verbatim in that doc (whitespace-normalized, case-sensitive, on word boundaries, inside one doc sentence, at least 3 words) | `quote_not_verbatim`, `empty_quote`, `quote_too_short` |
-| 4 | every number, money amount, percent and date in the sentence, and every quantity word (dozen, half, twice, fortnight, "thirtieth"), appears inside the cited quote(s), compared by value | `number_not_in_quote` |
+| 4 | every number, money amount, percent and date in the sentence, and every quantity word (dozen, half, twice, fortnight, "thirtieth", "hundreds"), appears inside a cited quote that on its own supports the clause, compared by value; a range ("3 to 5") is one value; a number-like token the parser cannot read (CJK numerals, "fourty", Roman "XC", "3/5", "5.99e2") must appear verbatim in the quote | `number_not_in_quote` |
 | 5 | the cited doc is in the retrieved set passed with the answer | `out_of_retrieval` |
-| 6 | at least half of the claim's content words appear in the cited quote(s); no word mixes Latin with Cyrillic or Greek letters | `claim_not_in_quote`, `mixed_script_text` |
+| 6 | at least half of the claim's content words appear in the cited quote(s) and at most one does not; a claim with no content words besides its citation is `empty_claim`; no word mixes scripts or hides a non-ASCII lookalike letter among ASCII letters | `claim_not_in_quote`, `mixed_script_text` |
 
 Before any comparison, answers, quotes and docs are normalized: Unicode NFKC,
 zero-width and other format characters removed, non-ASCII digits folded to
 0-9, smart quotes folded to straight quotes, number words turned into digits.
+A quote may differ from the doc in the case of its first letter only. Month
+abbreviations ("Nov.") and "p.m." before a lowercase word do not end a sentence.
 
 An answer with no sentences is blocked (`empty_answer`). The answer passes only
 if every sentence passes. Citations are masked before sentence splitting, so a
@@ -205,10 +218,32 @@ rag-groundedness-gate/
   gate.py            the checks, verdict, and CLI (python -m gate)
   evaluate.py        results table, false positives, measured median check time
   build_corpus.py    regenerates corpus/ deterministically
-  corpus/            30 synthetic policy docs + eval.jsonl (labeled answers)
-  tests/             unit, corpus, evaluate, mutation, and README-sync tests
+  corpus/            30 synthetic policy docs + eval.jsonl (labeled answers) + paraphrase.jsonl
+  tests/             unit, corpus, evaluate, mutation, hostile-review, and README-sync tests
+  RED-RUN-REVIEW.txt   the hostile review findings that drove tests/test_hostile.py
   .github/workflows/ci.yml
 ```
+
+## Hostile review 2026-10-04
+
+An independent adversarial pass found 2 kill, 4 high, 5 medium findings and
+confirmed 6 holds (RED-RUN-REVIEW.txt). Each fixed finding has a test in
+`tests/test_hostile.py` that ran the review's exact input through the CLI, failed
+first (18 of 19 cases failed on the old gate), and passes now. Fixed 10 of 11 (H4 in part); M4 stays disclosed.
+
+- K1 fixed: the mixed-script check covers every script, and a non-ASCII lookalike letter among ASCII letters fails closed.
+- K2 fixed: numbers are checked per clause against each quote alone, not pooled across the quotes of a sentence.
+- H1 fixed: numerals in other writing systems (CJK) are number-like tokens that must appear in the quote.
+- H2 fixed: number words misspelled by one edit and standalone Roman numerals must appear in the quote.
+- H3 fixed: digits no longer count toward word overlap and at most one content word may be absent from the quote.
+- H4 fixed in part: an accurate-paraphrase split is reported on its own and hyphenated percent and month abbreviations are read; synonym swaps stay blocked (Limitation 11).
+- M1 fixed: a bare amount matches a dollar amount, the first letter of a quote may differ in case, "p.m." does not split a sentence.
+- M2 fixed: a claim with no content words besides its citation is `empty_claim`.
+- M3 fixed: ranges are one value, and fractions and exponent tails must appear verbatim in the quote.
+- M5 fixed: vague quantity plurals (hundreds, thousands, dozens) must appear in the quote.
+- M4 open and disclosed: negation flips pass (Limitations 3 and 4), pinned by a test.
+
+Cost, measured by `evaluate.py`: recall stayed 240/240 and grounded false positives stayed 0/149. The new paraphrase split blocks 2/15 accurate rewordings, both synonym swaps (Limitation 11).
 
 ## License
 

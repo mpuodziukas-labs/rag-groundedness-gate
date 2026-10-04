@@ -16,8 +16,9 @@ Normalization applied to answers, quotes and docs before any comparison:
 Unicode NFKC, zero-width and other format characters removed, non-ASCII digits
 folded to 0-9, smart quotes folded to straight quotes. Number words ("thirty",
 "one hundred and twenty") become digits. Quantity words (dozen, half, twice) must
-appear in the quote. A claim word that mixes Latin with
-Cyrillic or Greek letters is blocked.
+appear in the quote. A number-like token the parser cannot read
+(CJK numerals, "fourty", Roman "XC", "3/5") must appear verbatim in the quote. A claim word
+that mixes scripts or hides a non-ASCII lookalike letter is blocked.
 
 Usage:
     python -m gate ANSWER_FILE --corpus corpus/docs --retrieved POL-01,POL-02
@@ -121,22 +122,32 @@ def _clip(text: str, n: int = CLIP) -> str:
     return text if len(text) <= n else text[: n - 3] + "..."
 
 
-_SCRIPTS = ("LATIN", "CYRILLIC", "GREEK")
+def _script(ch: str) -> str:
+    """First word of the Unicode name of a letter: LATIN, CYRILLIC, ARMENIAN, CJK, ..."""
+    name = unicodedata.name(ch, "")
+    return name.split(" ", 1)[0] if name else "UNKNOWN"
+
+
+def _is_accented_ascii(ch: str) -> bool:
+    """A non-ASCII letter that decomposes to an ASCII base letter (e, acute) is an ordinary accent."""
+    base = unicodedata.normalize("NFKD", ch)[:1]
+    return base.isascii() and base.isalpha()
 
 
 def has_mixed_script_word(text: str) -> bool:
-    """True if one word mixes Latin with Cyrillic or Greek letters (homoglyph tell)."""
-    for word in re.findall(r"\w+", text):
+    """True if one word mixes scripts, or hides a non-ASCII lookalike letter among ASCII letters.
+
+    Covers every script, not a fixed list: Latin with Cyrillic, Greek, Armenian, Cherokee, IPA
+    and small-capital Latin lookalikes all fail closed. Accents on Latin letters are fine.
+    """
+    for word in re.findall(r"[^\W_]+", text):
         if word.isascii():
             continue
-        seen = set()
-        for ch in word:
-            if ch.isalpha():
-                name = unicodedata.name(ch, "")
-                for script in _SCRIPTS:
-                    if name.startswith(script):
-                        seen.add(script)
-        if len(seen) > 1:
+        letters = [ch for ch in word if ch.isalpha()]
+        if len({_script(ch) for ch in letters}) > 1:
+            return True
+        if any(ch.isascii() for ch in letters) and any(
+                not ch.isascii() and not _is_accented_ascii(ch) for ch in letters):
             return True
     return False
 
@@ -170,7 +181,7 @@ NUM_RE = re.compile(
       (?:(?P<cur>US\$|USD[ ]?|\$|€|£)(?P<sign2>-)?|(?<!\w))
       (?P<num>{_NUM})
       (?:[ ](?P<magw>thousand|million|billion)(?!\w)|(?P<magl>[kmb])(?![\w]))?
-      (?:[ ]?(?P<pct>%|percent(?!\w)|per[ ]?cent(?!\w))|[ ](?P<curw>dollars?|usd|euros?|eur)(?!\w)|(?P<ord>(?:st|nd|rd|th)(?!\w)))?
+      (?:[ -]?(?P<pct>%|percent(?!\w)|per[ ]?cent(?!\w))|[ ](?P<curw>dollars?|usd|euros?|eur)(?!\w)|(?P<ord>(?:st|nd|rd|th)(?!\w)))?
     """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -195,6 +206,7 @@ _WORD_RUN = re.compile(
 # the same word (plural folded) or the sentence is blocked as number_not_in_quote.
 _QWORD_RE = re.compile(
     r"(?<![\w])(?:dozen|score|fortnight|half|halves|twice|thrice|double|triple|quarter|couple|pair"
+    r"|(?:hundred|thousand|million|billion)(?=s(?!\w))|ten(?=s(?!\w))"
     r"|(?:ten|eleven|twelf|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen"
     r"|twentie|thirtie|fortie|fiftie|sixtie|seventie|eightie|ninetie|hundred|thousand|million)(?:th))"
     r"s?(?!\w)",
@@ -256,34 +268,89 @@ def _date_tokens(month: int, day: int | None, year: int | None) -> list[str]:
     return [f"month:{_two(month)}"]
 
 
+_RANGE_GAP = re.compile(r"[ ]*(?:to|through|until|up[ ]to|-)[ ]*", re.IGNORECASE)
+_PUNCT = ".,;:!?()[]{}\"'*_ -\u2013\u2014"
+_LEX = {w: None for w in (*_WORDS, *_SCALES) if len(w) >= 5}
+_LEX_OK = frozenset("weight weights height heights forth threw".split())
+_ROMAN = re.compile(r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})")
+
+
+def _lev1(a: str, b: str) -> bool:
+    """True if a and b are exactly one edit (insert, delete, substitute) apart."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    i = 0
+    while i < min(len(a), len(b)) and a[i] == b[i]:
+        i += 1
+    if len(a) == len(b):
+        return a[i + 1:] == b[i + 1:]
+    if len(a) > len(b):
+        a, b = b, a
+    return a[i:] == b[i + 1:]
+
+
+def _unparsed_tokens(clean: str, consumed: list[tuple[int, int]]) -> list[str]:
+    """Number-like tokens the parser cannot read: they must then appear verbatim in the quote.
+
+    Covers digit tails and fractions (5.99e2, 3/5, A1), numerals in other writing systems
+    (Chinese, Hebrew, Ethiopic), number words misspelled by one edit (fourty, eighth) and
+    Roman numerals standing alone as words.
+    """
+    mask = bytearray(len(clean))
+    for s, e in consumed:
+        mask[s:e] = b"\x01" * (e - s)
+    out: list[str] = []
+    for m in re.finditer(r"\S+", clean):
+        left = "".join(ch for i, ch in enumerate(m.group(0), m.start()) if not mask[i])
+        if any(not (ch.isalpha() and unicodedata.numeric(ch, None) is None) and ch not in _PUNCT for ch in left):
+            out.append(m.group(0).strip(_PUNCT).lower())
+        elif any(ch.isalpha() and unicodedata.numeric(ch, None) is not None for ch in left):
+            out.append(m.group(0).strip(_PUNCT).lower())
+    for m in re.finditer(r"[^\W\d_]+", clean):
+        w = m.group(0)
+        if w.isascii() and w.isupper() and _ROMAN.fullmatch(w) and (len(w) > 1 or w in ("V", "X")):
+            out.append("roman:" + w)
+        low = w.lower()
+        if 5 <= len(low) <= 12 and low not in _WORDS and low not in _SCALES and low not in _LEX_OK \
+                and any(_lev1(low, k) for k in _LEX):
+            out.append(low)
+    return out
+
+
 def extract_numbers(text: str) -> list[str]:
     """Canonical tokens for every number, money amount, percent and date in text.
 
     Examples: 30 -> num:30, $1,000 and 1k dollars -> usd:1000, 5 percent -> pct:5,
-    March 15, 2026 -> date:2026-03-15, a bare March -> month:03.
+    March 15, 2026 -> date:2026-03-15, a bare March -> month:03, 3 to 5 -> range:num:3~num:5.
+    A number-like token that cannot be read (see _unparsed_tokens) becomes raw:<token>, so
+    it only passes when the quote contains the same token.
     """
     clean = words_to_digits(normalize_text(text))
     tokens: list[str] = []
+    consumed: list[tuple[int, int]] = []
+    plain: list[tuple[re.Match[str], str]] = []   # (match, token) of plain numbers, in order
+    pending: list[tuple[int, str]] = []          # (position, token) in text order
     for m in NUM_RE.finditer(clean):
         g = m.groupdict()
+        consumed.append(m.span())
         if g["iy"]:
-            tokens += _date_tokens(int(g["im"]), int(g["id"]), int(g["iy"])) or [f"num:{_dec(g['iy'])}"]
+            pending += [(m.start(), t) for t in (_date_tokens(int(g["im"]), int(g["id"]), int(g["iy"])) or [f"num:{_dec(g['iy'])}"])]
         elif g["sa"]:
             a, b, y = int(g["sa"]), int(g["sb"]), int(g["sy"])
             month, day = (b, a) if a > 12 and b <= 12 else (a, b)
-            tokens += _date_tokens(month, day, y) or [f"num:{a}", f"num:{b}", f"num:{y}"]
+            pending += [(m.start(), t) for t in (_date_tokens(month, day, y) or [f"num:{a}", f"num:{b}", f"num:{y}"])]
         elif g["mdm"]:
             year = int(g["mdy"]) if g["mdy"] else None
-            tokens += _date_tokens(_MONTH_NUM[g["mdm"].lower()], int(g["mdd"]), year) or [f"num:{int(g['mdd'])}"]
+            pending += [(m.start(), t) for t in (_date_tokens(_MONTH_NUM[g["mdm"].lower()], int(g["mdd"]), year) or [f"num:{int(g['mdd'])}"])]
         elif g["dmd"]:
             name = g["dmm"] or g["dmmay"]
             year_s = g["dmy"] or g["dmyy"]
             year = int(year_s) if year_s else None
-            tokens += _date_tokens(_MONTH_NUM[name.lower()], int(g["dmd"]), year) or [f"num:{int(g['dmd'])}"]
+            pending += [(m.start(), t) for t in (_date_tokens(_MONTH_NUM[name.lower()], int(g["dmd"]), year) or [f"num:{int(g['dmd'])}"])]
         elif g["mym"]:
-            tokens += _date_tokens(_MONTH_NUM[g["mym"].lower()], None, int(g["myy"]))
+            pending += [(m.start(), t) for t in _date_tokens(_MONTH_NUM[g["mym"].lower()], None, int(g["myy"]))]
         elif g["bm"]:
-            tokens += _date_tokens(_MONTH_NUM[g["bm"].lower()], None, None)
+            pending += [(m.start(), t) for t in _date_tokens(_MONTH_NUM[g["bm"].lower()], None, None)]
         else:
             mult = 1
             if g["magw"]:
@@ -295,15 +362,33 @@ def extract_numbers(text: str) -> list[str]:
             word = (g["curw"] or "").lower()
             if cur in ("$", "us$", "usd") or word in ("dollar", "dollars", "usd"):
                 kind = "usd"
-            elif cur == "€" or word in ("euro", "euros", "eur"):
+            elif cur == "\u20ac" or word in ("euro", "euros", "eur"):
                 kind = "eur"
-            elif cur == "£":
+            elif cur == "\u00a3":
                 kind = "gbp"
             elif g["pct"]:
                 kind = "pct"
             else:
                 kind = "num"
-            tokens.append(f"{kind}:{value}")
+            plain.append((m, f"{kind}:{value}"))
+            pending.append((m.start(), f"{kind}:{value}"))
+    # A range is one value: "3 to 5" is not the two numbers 3 and 5.
+    merged: dict[int, str] = {}
+    skip: set[int] = set()
+    for (p, tp), (q, tq) in zip(plain, plain[1:]):
+        gap = clean[p.end():q.start()]
+        between = clean[:p.start()].rstrip().lower().endswith("between") and gap.strip().lower() == "and"
+        if _RANGE_GAP.fullmatch(gap) or between:
+            if p.start() not in skip:
+                merged[p.start()] = f"range:{tp}~{tq}"
+                skip.update((p.start(), q.start()))
+                consumed.append((p.end(), q.start()))
+    for pos, tok in pending:
+        if pos in merged:
+            tokens.append(merged[pos])
+        elif pos not in skip:
+            tokens.append(tok)
+    tokens += ["raw:" + t for t in _unparsed_tokens(clean, consumed)]
     for m in _QWORD_RE.finditer(clean):
         w = m.group(0).lower()
         tokens.append("word:" + ("half" if w == "halves" else w[:-1] if w.endswith("s") and w != "twice" else w))
@@ -352,13 +437,20 @@ def number_in_text(token: str, text: str) -> bool:
 # Quotes
 # ---------------------------------------------------------------------------
 
-_ABBREVS = {"e.g.", "i.e.", "vs.", "cf.", "approx.", "incl.", "inc.", "ltd.", "dr.", "mr.", "mrs.", "ms.", "fig."}
+_ABBREVS = {"e.g.", "i.e.", "vs.", "cf.", "approx.", "incl.", "inc.", "ltd.", "dr.", "mr.", "mrs.", "ms.", "fig.",
+            "jan.", "feb.", "mar.", "apr.", "jun.", "jul.", "aug.", "sep.", "sept.", "oct.", "nov.", "dec."}
+_CLOCK = {"a.m.", "p.m."}   # an abbreviation unless the next word is capitalized (then it ends the sentence)
 _TERMINATORS = "[.!?。]+"
 
 
 def _is_abbrev(text: str, end: int) -> bool:
     tail = text[max(0, end - 16):end].split()  # bounded look-back keeps this linear
-    return bool(tail) and tail[-1].lstrip("([\"'").lower() in _ABBREVS
+    if not tail:
+        return False
+    last = tail[-1].lstrip("([\"'").lower()
+    if last in _CLOCK:
+        return not re.match(r"\s+[A-Z]", text[end:end + 8])
+    return last in _ABBREVS
 
 
 def _sentence_breaks(text: str) -> list[int]:
@@ -373,6 +465,12 @@ def quote_in_doc(quote: str, doc: str) -> bool:
     if not q:
         return False
     d = normalize_ws(doc)
+    if q[0].isalpha() and q[0] != q[0].swapcase():   # only the first letter's case is forgiven
+        return _quote_in(q, d) or _quote_in(q[0].swapcase() + q[1:], d)
+    return _quote_in(q, d)
+
+
+def _quote_in(q: str, d: str) -> bool:
     breaks = _sentence_breaks(d)
     start = d.find(q)
     while start != -1:
@@ -389,34 +487,85 @@ def quote_in_doc(quote: str, doc: str) -> bool:
     return False
 
 
-def missing_numbers(sentence: str, quotes: Sequence[str]) -> list[str]:
-    """Check 4: canonical numbers in the sentence that no cited quote supports."""
-    support = _support_set(" ".join(quotes))
-    seen: list[str] = []
-    for tok in extract_numbers(sentence):
-        if tok not in support and tok not in seen:
-            seen.append(tok)
-    return seen
-
-
 _STOP = frozenset(
     "the and for are was were you your our can may has have had with that this from per any all not its "
     "their will shall must but who how out off into onto than then there these those they them been being "
     "also only each both such more most very just would could should about over under".split()
 )
+# Words that carry no policy fact: how an answer introduces itself, and the unit words of a number.
+_FRAME = frozenset(w for w in "policy state stated according say dollar percent cent usd euro eur".split())
+MAX_NOVEL = 1              # content words a claim may add that its cited quotes do not contain
 
 
 def _stem(word: str) -> str:
-    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
+    """Light suffix stripping so returns, returned and returning share a stem."""
+    for suffix, floor in (("ing", 6), ("ed", 5), ("es", 5), ("s", 4)):
+        if len(word) >= floor and word.endswith(suffix) and not word.endswith("ss"):
+            word = word[: -len(suffix)]
+            break
+    return word[:-1] if len(word) > 3 and word[-1] == word[-2] and word[-1] not in "aeiouls" else word
+
+
+def _claim_words(text: str) -> set[str]:
+    """Content words of a sentence: number words folded to digits, digits dropped, framing dropped."""
+    folded = words_to_digits(normalize_text(text)).lower()
+    return {_stem(w) for w in re.findall(r"[a-z]{3,}", folded) if w not in _STOP} - _FRAME
+
+
+def _quote_words(quotes: Sequence[str]) -> set[str]:
+    folded = words_to_digits(normalize_text(" ".join(quotes))).lower()
+    return {_stem(w) for w in re.findall(r"[a-z]+", folded)}
 
 
 def support_ratio(sentence: str, quotes: Sequence[str]) -> float:
-    """Share of the sentence's content words that appear in the cited quotes (1.0 if none)."""
-    claim = {_stem(w) for w in re.findall(r"[a-z]{3,}|\d+", normalize_text(sentence).lower()) if w not in _STOP}
+    """Share of the sentence's content words that appear in the cited quotes.
+
+    Digits do not count. A sentence with no content words has support 0.0, never 1.0.
+    """
+    claim = _claim_words(sentence)
     if not claim:
-        return 1.0
-    quoted = {_stem(w) for w in re.findall(r"[a-z]+|\d+", normalize_text(" ".join(quotes)).lower())}
-    return len(claim & quoted) / len(claim)
+        return 0.0
+    return len(claim & _quote_words(quotes)) / len(claim)
+
+
+def novel_words(sentence: str, quotes: Sequence[str]) -> list[str]:
+    """Content words of the sentence that none of the cited quotes contain."""
+    return sorted(_claim_words(sentence) - _quote_words(quotes))
+
+
+def _clauses(sentence: str) -> list[str]:
+    """Split a sentence into clauses at ", word", " and ", " but ", " while ", " plus ".
+
+    Dates, amounts and "between 3 and 5" are never split.
+    """
+    text = words_to_digits(normalize_text(sentence))
+    text = re.sub(r"(?i)(between\s+\S+)\s+and\s", "\\1 \x01 ", text)
+    parts = re.split(r",\s+(?=[A-Za-z])|\s+(?:and|but|while|plus)\s+", text)
+    return [p.replace("\x01", "and") for p in parts if p and p.strip()]
+
+
+def missing_numbers(sentence: str, quotes: Sequence[str]) -> list[str]:
+    """Check 4: canonical numbers in the sentence that no cited quote supports.
+
+    Each clause is checked against each quote on its own: a number counts as supported
+    only by a quote that by itself shares at least MIN_SUPPORT of that clause's content
+    words. A number in a different quote that the claim merely sits beside does not
+    support it, and a range ("3 to 5") is one value, so "3" alone is not supported by it.
+    A bare number also matches a dollar amount of the same value ("costs 5.99" for "$5.99").
+    """
+    whole = _claim_words(sentence)
+    support_of = [(q, _support_set(q)) for q in quotes]
+    missing: list[str] = []
+    for clause in _clauses(sentence):
+        words = _claim_words(clause) or whole
+        ok: set[str] = set()
+        for q, sup in support_of:
+            if not words or len(words & _quote_words([q])) / len(words) >= MIN_SUPPORT:
+                ok |= sup
+        for tok in extract_numbers(clause):
+            if tok not in ok and not (tok.startswith("num:") and "usd:" + tok[4:] in ok) and tok not in missing:
+                missing.append(tok)
+    return missing
 
 
 # ---------------------------------------------------------------------------
@@ -537,7 +686,7 @@ def check_answer(answer: str, corpus: Mapping[str, str], retrieved: Iterable[str
         if not cites:
             res.reasons.append(Reason(MISSING_CITATION, "sentence carries no citation"))
         if has_mixed_script_word(text):
-            res.reasons.append(Reason(MIXED_SCRIPT, "a word mixes Latin with Cyrillic or Greek letters"))
+            res.reasons.append(Reason(MIXED_SCRIPT, "a word mixes scripts or hides a non-ASCII lookalike letter"))
         for doc_id, quote in cites:
             if doc_id not in corpus:
                 res.reasons.append(Reason(UNKNOWN_DOC, f"{_clip(doc_id)} is not in the corpus"))
@@ -553,9 +702,16 @@ def check_answer(answer: str, corpus: Mapping[str, str], retrieved: Iterable[str
             quotes = [q for _, q in cites]
             for token in missing_numbers(text, quotes)[:MAX_REPORTED_REASONS]:
                 res.reasons.append(Reason(NUMBER_NOT_IN_QUOTE, f"{display_number(token)} is not inside the cited quote"))
-            ratio = support_ratio(text, quotes)
-            if ratio < MIN_SUPPORT:
-                res.reasons.append(Reason(UNSUPPORTED_CLAIM, f"only {ratio:.0%} of the claim's content words appear in the cited quote"))
+            if not _claim_words(text):
+                if not extract_numbers(text) and not any(r.code == EMPTY_CLAIM for r in res.reasons):
+                    res.reasons.append(Reason(EMPTY_CLAIM, "sentence has no content words besides its citation"))
+            else:
+                ratio = support_ratio(text, quotes)
+                if ratio < MIN_SUPPORT:
+                    res.reasons.append(Reason(UNSUPPORTED_CLAIM, f"only {ratio:.0%} of the claim's content words appear in the cited quote"))
+                novel = novel_words(text, quotes)
+                if len(novel) > MAX_NOVEL:
+                    res.reasons.append(Reason(UNSUPPORTED_CLAIM, f"{len(novel)} content words are in no cited quote: {_clip(', '.join(novel), 80)}"))
         sentences.append(res)
     answer_reasons = [] if sentences else [Reason(EMPTY_ANSWER, "answer contains no sentences")]
     return Verdict(sentences, answer_reasons)

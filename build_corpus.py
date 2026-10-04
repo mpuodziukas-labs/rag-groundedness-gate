@@ -602,6 +602,51 @@ def ungrounded_records() -> list[dict]:
     return recs
 
 
+# Accurate rewordings of real doc sentences: the claim text differs from the cited quote, the
+# meaning does not. Reported as its own split so the gate's false positives on paraphrase are
+# visible and not hidden behind copy-paste answers. known_blocked rows are paraphrases the gate
+# still blocks (synonyms it cannot match); they are listed in the README Limitations.
+PARAPHRASES = [
+    ("hyphen_percent", "POL-01", "Customers pay a restocking fee of 10-percent on opened electronics",
+     "Customers pay a restocking fee of 10% on opened electronics", False),
+    ("month_abbreviation_ordinal", "POL-05", "The international carrier cutoff for holiday delivery is Nov. 20th, 2026",
+     "The international carrier cutoff for holiday delivery is November 20, 2026", False),
+    ("amount_without_symbol", "POL-03", "Standard shipping costs 5.99 and arrives in 3 to 5 business days",
+     "Standard shipping costs $5.99 and arrives in 3 to 5 business days", False),
+    ("lowercase_first_letter_quote", "POL-03", "Standard shipping costs $5.99 and arrives in 3 to 5 business days",
+     "standard shipping costs $5.99 and arrives in 3 to 5 business days", False),
+    ("clock_abbreviation", "POL-03", "Orders placed after 2 p.m. local time ship on the next business day",
+     "Orders placed after 2 PM local time ship on the next business day", False),
+    ("number_word_dropped_adjective", "POL-02", "Refunds reach the original payment method within seven business days",
+     "Approved refunds reach the original payment method within 7 business days", False),
+    ("verb_swap_number_word", "POL-04", "Express shipping is $14.99 and arrives in two business days",
+     "Express shipping costs $14.99 and arrives within 2 business days", False),
+    ("date_reformat", "POL-08", "Double points weekends fall on April 11 and April 12, 2026",
+     "Double points weekends run on April 11, 2026 and April 12, 2026", False),
+    ("range_connector", "POL-07", "Gift cards come in amounts from $10 up to $500",
+     "Gift cards are issued in amounts from $10 to $500", False),
+    ("amount_trailing_zeros", "POL-07", "A dormancy fee of $2 applies to gift cards after 24 months",
+     "Gift cards never expire but lose a dormancy fee of $2.00 after 24 months", False),
+    ("plural_noun", "POL-02", "Refund confirmation emails go out within 24 hours of approval",
+     "Customers receive a refund confirmation email within 24 hours of approval", False),
+    ("one_new_word", "POL-07", "Lost gift cards can be replaced if you show proof of purchase within 90 days",
+     "Lost gift cards can be replaced only with proof of purchase within 90 days", False),
+    ("preposition_swap", "POL-03", "Orders over $75 ship free to the continental region",
+     "Orders over $75 ship free within the continental region", False),
+    ("synonyms", "POL-08", "Members get 5% of every purchase back as loyalty points",
+     "Members earn 5% back in points on every eligible order", True),
+    ("synonym_above", "POL-06", "Price adjustments are limited to differences above $5 per item",
+     "Adjustments are limited to differences greater than $5.00 per item", True),
+]
+
+
+def build_paraphrase() -> list[dict]:
+    return [dict(id=f"P-{i:03d}", split="grounded", **{"class": "paraphrase"}, variant=name, retrieved=[doc],
+                 answer=claim("", text, doc, quote), known_blocked=known, expect_reason=None,
+                 bad_sentence=None, synthetic=True)
+            for i, (name, doc, text, quote, known) in enumerate(PARAPHRASES, 1)]
+
+
 def build_eval() -> list[dict]:
     recs = grounded_records(rng_for("grounded")) + ungrounded_records()
     for r in recs:
@@ -616,6 +661,8 @@ def write_all(out_dir: str | Path) -> None:
         (out / "docs" / f"{doc_id}.txt").write_text(text, encoding="utf-8", newline="\n")
     lines = [json.dumps(r, ensure_ascii=True, sort_keys=True) for r in build_eval()]
     (out / "eval.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    lines = [json.dumps(r, ensure_ascii=True, sort_keys=True) for r in build_paraphrase()]
+    (out / "paraphrase.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
