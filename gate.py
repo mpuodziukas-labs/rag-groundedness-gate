@@ -95,9 +95,9 @@ class CorpusError(ValueError):
 # ---------------------------------------------------------------------------
 
 _QUOTE_FOLD = str.maketrans({
-    "‘": "'", "’": "'", "‚": "'", "‛": "'",
-    "“": '"', "”": '"', "„": '"', "‟": '"',
-    "−": "-",
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
+    "\u2212": "-",
 })
 
 
@@ -178,7 +178,7 @@ NUM_RE = re.compile(
     | (?<![\w])(?P<mym>{_MON_NOMAY}|(?-i:May))\.?,?[ ]+(?P<myy>\d{{4}})(?!\d)
     | (?<![\w])(?-i:(?P<bm>January|February|March|April|June|July|August|September|October|November|December))(?!\w)
     | (?P<sign>(?<![\w.,)$])-)?
-      (?:(?P<cur>US\$|USD[ ]?|\$|€|£)(?P<sign2>-)?|(?<!\w))
+      (?:(?P<cur>US\$|USD[ ]?|\$|\u20ac|\u00a3)(?P<sign2>-)?|(?<!\w))
       (?P<num>{_NUM})
       (?:[ ](?P<magw>thousand|million|billion)(?!\w)|(?P<magl>[kmb])(?![\w]))?
       (?:[ -]?(?P<pct>%|percent(?!\w)|per[ ]?cent(?!\w))|[ ](?P<curw>dollars?|usd|euros?|eur)(?!\w)|(?P<ord>(?:st|nd|rd|th)(?!\w)))?
@@ -440,7 +440,7 @@ def number_in_text(token: str, text: str) -> bool:
 _ABBREVS = {"e.g.", "i.e.", "vs.", "cf.", "approx.", "incl.", "inc.", "ltd.", "dr.", "mr.", "mrs.", "ms.", "fig.",
             "jan.", "feb.", "mar.", "apr.", "jun.", "jul.", "aug.", "sep.", "sept.", "oct.", "nov.", "dec."}
 _CLOCK = {"a.m.", "p.m."}   # an abbreviation unless the next word is capitalized (then it ends the sentence)
-_TERMINATORS = "[.!?。]+"
+_TERMINATORS = "[.!?\u3002]+"
 
 
 def _is_abbrev(text: str, end: int) -> bool:
@@ -572,7 +572,7 @@ def missing_numbers(sentence: str, quotes: Sequence[str]) -> list[str]:
 # Sentences
 # ---------------------------------------------------------------------------
 
-_LINE_BREAKS = re.compile(r"[\r\n  \x0b\x0c\x85]+")
+_LINE_BREAKS = re.compile(r"[\r\n\u2028\u2029\x0b\x0c\x85]+")
 _LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022\u2013\u2014]\s+|\d{1,3}[.)]\s+)")
 _BOUNDARY = re.compile(rf"{_TERMINATORS}(?=\s|\x00)|(?<=[a-z]{{2}})[.!?](?=[A-Z])|\u3002|;")
 
@@ -580,7 +580,7 @@ _BOUNDARY = re.compile(rf"{_TERMINATORS}(?=\s|\x00)|(?<=[a-z]{{2}})[.!?](?=[A-Z]
 def _split_line(line: str) -> list[str]:
     pieces, last = [], 0
     for m in _BOUNDARY.finditer(line):
-        if m.group(0)[0] in ".!?。" and _is_abbrev(line, m.end()):
+        if m.group(0)[0] in ".!?\u3002" and _is_abbrev(line, m.end()):
             continue
         pieces.append(line[last:m.end()])
         last = m.end()

@@ -77,8 +77,8 @@ NUMBER_BLOCK = [
     ("a hundred", "Items may be returned within a hundred days of delivery for a full refund", RET),
     ("spaced tens", "Items may be returned within forty five days of delivery for a full refund", RET),
     ("word vs 130", "Warranty claims close within thirty days of purchase for all items", WARR),
-    ("superscript", "Items may be returned within ⁴⁰ days of delivery for a full refund", RET),
-    ("circled", "Items may be returned within ⑩ days of delivery for a full refund", RET),
+    ("superscript", "Items may be returned within \u2074\u2070 days of delivery for a full refund", RET),
+    ("circled", "Items may be returned within \u2469 days of delivery for a full refund", RET),
     ("k suffix", "Gift cards are issued in amounts from $10 to $500k at any store", GIFT),
     ("thousand suffix", "Gift cards are issued in amounts from $10 to $500 thousand at any store", GIFT),
     ("million suffix", "Gift cards are issued in amounts from $10 to $500 million at any store", GIFT),
@@ -92,7 +92,7 @@ NUMBER_BLOCK = [
     ("bare month swap", "The spring window closes in April for all stores", SPRING),
     ("wrong long date", "The spring window closes on 16 March 2026 for all stores", SPRING),
     ("wrong slash date", "The spring window closes on 03/16/2026 for all stores", SPRING),
-    ("euro for dollars", "Premium freight costs €1,000 per pallet within the region", FREIGHT),
+    ("euro for dollars", "Premium freight costs \u20ac1,000 per pallet within the region", FREIGHT),
 ]
 
 
@@ -103,9 +103,9 @@ def test_number_evasion_is_blocked(label, sentence, quote):
 
 NUMBER_PASS = [
     ("number word equals digit", "Items may be returned within thirty days of delivery for a full refund", RET),
-    ("fullwidth digits", "Items may be returned within ３０ days of delivery for a full refund", RET),
-    ("arabic-indic digits", "Items may be returned within ٣٠ days of delivery for a full refund", RET),
-    ("zero-width inside digits", "Items may be returned within 3​0 days of delivery for a full refund", RET),
+    ("fullwidth digits", "Items may be returned within \uff13\uff10 days of delivery for a full refund", RET),
+    ("arabic-indic digits", "Items may be returned within \u0663\u0660 days of delivery for a full refund", RET),
+    ("zero-width inside digits", "Items may be returned within 3\u200b0 days of delivery for a full refund", RET),
     ("$1000 vs $1,000", "Premium freight costs $1000 per pallet within the region", FREIGHT),
     ("$1k vs $1,000", "Premium freight costs $1k per pallet within the region", FREIGHT),
     ("1,000 dollars vs $1,000", "Premium freight costs 1,000 dollars per pallet within the region", FREIGHT),
@@ -168,10 +168,10 @@ def test_cross_doc_label_swap_is_blocked():
 
 
 NORMALIZATION_PASS = [
-    ("zero-width space in quote", RET.replace("within ", "within​ ")),
-    ("zero-width joiner and BOM", RET.replace("returned", "ret‍urned").replace("Unused", "﻿Unused")),
-    ("soft hyphen in quote", RET.replace("delivery", "deliv­ery")),
-    ("nbsp in quote", RET.replace(" days", " days")),
+    ("zero-width space in quote", RET.replace("within ", "within\u200b ")),
+    ("zero-width joiner and BOM", RET.replace("returned", "ret\u200durned").replace("Unused", "\ufeffUnused")),
+    ("soft hyphen in quote", RET.replace("delivery", "deliv\u00adery")),
+    ("nbsp in quote", RET.replace(" days", "\u00a0days")),
     ("newline and tabs in quote", RET.replace(" may be ", "\n may\tbe ").replace("may\tbe", "may be")),
 ]
 
@@ -183,25 +183,25 @@ def test_invisible_characters_in_a_real_quote_do_not_block(label, quote):
 
 
 def test_smart_apostrophe_in_quote_matches_straight_apostrophe_in_doc():
-    q = APOS.replace("'", "’")
-    assert not run(f'The store doesn’t accept returns of opened software [doc:RT-2 "{q}"].').blocked
+    q = APOS.replace("'", "\u2019")
+    assert not run(f'The store doesn\u2019t accept returns of opened software [doc:RT-2 "{q}"].').blocked
 
 
 def test_smart_quote_citation_delimiters_are_accepted():
-    answer = f"Items may be returned within 30 days of delivery for a full refund [doc:RT-1 “{RET}”]."
+    answer = f"Items may be returned within 30 days of delivery for a full refund [doc:RT-1 \u201c{RET}\u201d]."
     assert not run(answer).blocked
 
 
 def test_homoglyph_in_quote_is_blocked():
-    q = RET.replace("returned", "rеturned")  # Cyrillic e
+    q = RET.replace("returned", "r\u0435turned")  # Cyrillic e
     assert run(f'Items may be returned within 30 days of delivery for a full refund [doc:RT-1 "{q}"].').blocked
 
 
 HOMOGLYPH_BLOCK = [
-    ("cyrillic i in number word", "Warranty claims close within thіrty days of purchase for all items"),
-    ("zero-width inside number word", "Warranty claims close within thi​rty days of purchase for all items"),
-    ("soft hyphen inside number word", "Warranty claims close within thi­rty days of purchase for all items"),
-    ("greek omicron in number word", "Warranty claims close within fοrty days of purchase for all items"),
+    ("cyrillic i in number word", "Warranty claims close within th\u0456rty days of purchase for all items"),
+    ("zero-width inside number word", "Warranty claims close within thi\u200brty days of purchase for all items"),
+    ("soft hyphen inside number word", "Warranty claims close within thi\u00adrty days of purchase for all items"),
+    ("greek omicron in number word", "Warranty claims close within f\u03bfrty days of purchase for all items"),
 ]
 
 
@@ -211,7 +211,7 @@ def test_hidden_number_words_are_blocked(label, sentence):
 
 
 def test_zero_width_only_quote_is_blocked():
-    assert run('Refunds are instant everywhere [doc:RT-1 "​​"].').blocked
+    assert run('Refunds are instant everywhere [doc:RT-1 "\u200b\u200b"].').blocked
 
 
 # ---------------------------------------------------------------------------
@@ -266,12 +266,12 @@ HIDDEN_BLOCK = [
     ("newline only", f"{HIDDEN}\n{GOOD}"),
     ("semicolon", f"{HIDDEN}; {GOOD}"),
     ("period without space", f"{HIDDEN}.{GOOD}"),
-    ("fullwidth full stop", f"{HIDDEN}。{GOOD}"),
-    ("ellipsis", f"{HIDDEN}… {GOOD}"),
+    ("fullwidth full stop", f"{HIDDEN}\u3002{GOOD}"),
+    ("ellipsis", f"{HIDDEN}\u2026 {GOOD}"),
     ("etc then capital", f"{HIDDEN} etc. {GOOD}"),
     ("question mark", f"{HIDDEN}? {GOOD}"),
     ("windows newline", f"{HIDDEN}\r\n{GOOD}"),
-    ("line separator", f"{HIDDEN} {GOOD}"),
+    ("line separator", f"{HIDDEN}\u2028{GOOD}"),
     ("numbered", f"1. {HIDDEN}\n2. {GOOD}"),
 ]
 
@@ -312,7 +312,7 @@ def test_citation_only_answer_is_blocked():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("doc_id", ["rt-1", "Rt-1", "RT-1.txt", "../RT-1", "/etc/passwd", "RT-1/../RT-1",
-                                    "RT-01", "RT 1", "RT‐1"])
+                                    "RT-01", "RT 1", "RT\u20101"])
 def test_doc_id_variants_do_not_resolve(doc_id):
     answer = f'Items may be returned within 30 days of delivery for a full refund [doc:{doc_id} "{RET}"].'
     assert run(answer).blocked, doc_id
@@ -426,7 +426,7 @@ def test_cli_large_number_heavy_answer_finishes_quickly(corpus_dir):
 
 
 def test_cli_binary_garbage_that_decodes_is_not_a_pass(corpus_dir):
-    p = cli("-", "--corpus", str(corpus_dir), "--retrieved", "RT-1", stdin="\x00\x01\x02﻿​".encode())
+    p = cli("-", "--corpus", str(corpus_dir), "--retrieved", "RT-1", stdin="\x00\x01\x02\ufeff\u200b".encode())
     assert p.returncode == 1
 
 
