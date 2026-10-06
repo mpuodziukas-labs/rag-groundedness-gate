@@ -317,6 +317,13 @@ def _unparsed_tokens(clean: str, consumed: list[tuple[int, int]]) -> list[str]:
     return out
 
 
+def _ends_with_between(text: str, end: int) -> bool:
+    """text[:end].rstrip().lower().endswith("between") without copying the prefix (keeps long answers linear)."""
+    while end > 0 and text[end - 1].isspace():
+        end -= 1
+    return text[max(0, end - 7):end].lower() == "between"
+
+
 def extract_numbers(text: str) -> list[str]:
     """Canonical tokens for every number, money amount, percent and date in text.
 
@@ -377,7 +384,7 @@ def extract_numbers(text: str) -> list[str]:
     skip: set[int] = set()
     for (p, tp), (q, tq) in zip(plain, plain[1:]):
         gap = clean[p.end():q.start()]
-        between = clean[:p.start()].rstrip().lower().endswith("between") and gap.strip().lower() == "and"
+        between = gap.strip().lower() == "and" and _ends_with_between(clean, p.start())
         if _RANGE_GAP.fullmatch(gap) or between:
             if p.start() not in skip:
                 merged[p.start()] = f"range:{tp}~{tq}"
