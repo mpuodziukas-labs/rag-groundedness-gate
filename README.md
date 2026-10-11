@@ -248,3 +248,5 @@ Cost, measured by `evaluate.py`: recall stayed 240/240 and grounded false positi
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Agent verification contract: [AGENTS.md](AGENTS.md)
