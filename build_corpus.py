@@ -654,15 +654,21 @@ def build_eval() -> list[dict]:
     return recs
 
 
+def _write(path: Path, text: str) -> None:
+    # open() rather than write_text(newline=...), which needs Python 3.10+
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
 def write_all(out_dir: str | Path) -> None:
     out = Path(out_dir)
     (out / "docs").mkdir(parents=True, exist_ok=True)
     for doc_id, text in doc_texts().items():
-        (out / "docs" / f"{doc_id}.txt").write_text(text, encoding="utf-8", newline="\n")
+        _write(out / "docs" / f"{doc_id}.txt", text)
     lines = [json.dumps(r, ensure_ascii=True, sort_keys=True) for r in build_eval()]
-    (out / "eval.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    _write(out / "eval.jsonl", "\n".join(lines) + "\n")
     lines = [json.dumps(r, ensure_ascii=True, sort_keys=True) for r in build_paraphrase()]
-    (out / "paraphrase.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    _write(out / "paraphrase.jsonl", "\n".join(lines) + "\n")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

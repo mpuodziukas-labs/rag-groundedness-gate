@@ -1,8 +1,14 @@
-# RAG Groundedness Gate
+# rag-groundedness-gate
 
 Proves: RAG evaluation and groundedness guardrails. Verify in 60s: `python3 evaluate.py`.
 
 ![CI](https://github.com/mpuodziukas-labs/rag-groundedness-gate/actions/workflows/ci.yml/badge.svg)
+
+The title line of the earlier README, kept as written:
+
+```text
+# RAG Groundedness Gate
+```
 
 A support or finance assistant that quotes policy and numbers is one invented
 number away from real money and lost trust: a refund amount, a fee, a deadline
@@ -10,8 +16,31 @@ that is not in the source. This gate checks a RAG answer before it reaches a
 customer and blocks it in milliseconds, on a CPU, at zero marginal cost. It
 needs no API key, no network and no third-party package.
 
-```
+```text
 Answer + retrieved doc IDs  ->  gate  ->  pass (exit 0) | blocked (exit 1) + per-sentence reasons
+```
+
+## Ticket
+
+| Field | Value |
+|---|---|
+| Ticket | rag-groundedness-gate 2026-10-25 |
+| Status | LIVE |
+| Severity of a false pass | An answer with an invented quote, number, amount or date is passed on because the evaluator printed all-N/N, and the reader acts on it. |
+| Scope (in) | Checking a RAG answer against its retrieved documents: a citation on every sentence, a known doc, a verbatim quote, the retrieved set, numbers inside the quote, lexical support of the claim, plus the command line exit codes. |
+| Out of scope | Semantic entailment, negation, number roles and units, and real traffic (see Limitations). |
+| Owner | Michael Puodziukas, michael@puodziukas.dev |
+| Opened | 2026-10-02 |
+| Last verified | 2026-10-25, last line `Median per-answer check time: 0.754 ms over 389 answers (measured on this run)`; pass line `\| Ungrounded total \| 240/240 \|` |
+| Oracle | `python3 evaluate.py`, exit 0 and the line `\| Ungrounded total \| 240/240 \|`; `python3 mutants.py`, last line `mutants killed 16/16` |
+| Dependencies | Runtime: Python 3.10 or newer, standard library only. Test: pytest. |
+| Supported platforms | macOS (both oracles measured here, rc=0); Linux through the ubuntu-latest runner in .github/workflows/ci.yml (not measured here). |
+
+## Quick start
+
+```bash
+python3 evaluate.py
+python3 mutants.py
 ```
 
 ## Business problem
@@ -104,6 +133,41 @@ this table ever differs from what `evaluate.py` prints.
 | citation_only | a citation with no claim text |
 | mixed_script_number | a number word with one Cyrillic letter, so it is not read as a number |
 
+## Normal procedure
+
+1. From the repo root run `python3 evaluate.py`. It checks every labeled answer in `corpus/eval.jsonl` against the gate, prints the results table, the false-positive rows and a median check time line, and exits 0 only when every ungrounded answer is blocked with its expected reason and no grounded answer is blocked.
+2. Read the table. Each row is detected out of total. PASS means the exit code is 0 and the output holds this line:
+
+```text
+| Ungrounded total | 240/240 |
+```
+
+3. Run `python3 mutants.py` to prove the tests can fail. It removes one defense at a time in a scratch copy and requires the matching test file to go red. PASS ends with this line:
+
+```text
+mutants killed 16/16
+```
+
+4. For the unit, hostile-review, mutation and README-sync tests run `python3 -m pytest tests/ -q`. After a change to the corpus builder run `python3 build_corpus.py` first.
+
+## Abnormal procedure
+
+| Symptom | Cause | Action | Oracle |
+|---|---|---|---|
+| `evaluate.py` exits 1 or a class row is short of N/N | A rule changed, so a labeled defective answer is no longer blocked with its expected reason code | Find the class row, run one answer of that class from `corpus/eval.jsonl` through the command line and compare the reason codes with the label | `python3 evaluate.py` |
+| A README sync test fails in pytest | The Results table or the composition line no longer equals what `evaluate.py` prints | Run `python3 build_corpus.py`, then copy the table printed by `python3 evaluate.py` between the RESULTS markers | `python3 -m pytest tests/ -q` |
+| `mutants.py` prints a LIVE line | A removed defense that no test detects, which is a gap in the tests | Add or tighten a test in the file named by that mutant until the line prints RED | `python3 mutants.py` |
+| `mutants.py` prints `control FAIL` or `pattern matched` | The unmodified tests fail in the copy (for example pytest is missing), or the source line a mutant targets has moved | Run `python3 -m pip install pytest`, or update the pattern in `mutants.py` | `python3 mutants.py` |
+| The command line exits 2 | The call was malformed (usage error) | Pass the answer on stdin or as the argument, with `--corpus` and `--retrieved` | `python -m gate - --corpus corpus/docs --retrieved POL-03,POL-06` |
+
+## Emergency procedure
+
+The gate passed an answer that was later found to hold an invented quote, number, amount or date.
+
+1. Freeze: stop delivering answers on the strength of this gate for the affected path, or send them to a human reviewer, and record the repo commit, the answer, its cited doc IDs and the retrieved set.
+2. Replay: run the saved answer through `python -m gate - --corpus corpus/docs --retrieved POL-03,POL-06` with the real retrieved IDs. If it exits 0, add the answer as a labeled case in `build_corpus.py`, fix the check in `gate.py`, and add a mutant to `mutants.py`. Then run `python3 evaluate.py` and `python3 mutants.py` and expect every count N/N.
+3. Tell: the owner (michael@puodziukas.dev) and every team whose answers pass through this gate. Name the missing check and the Limitations item that covers it.
+
 ## Honesty Statement
 
 > **These numbers are measured on the bundled synthetic corpus (composition
@@ -123,6 +187,9 @@ reports missed detections and exits nonzero. The unmutated control stays fully
 green, so a passing eval cannot be vacuous.
 
 ## Limitations
+
+- The pass line measures the bundled synthetic corpus only. It is not a recall figure for real traffic.
+- The median check time line differs on every run and is not a pass condition.
 
 1. **Synthetic and co-developed.** Rules and eval cases came from one author
    and grew together, so N/N here measures coverage of known failure shapes,
@@ -213,7 +280,7 @@ Verdict shape:
 
 Files:
 
-```
+```text
 rag-groundedness-gate/
   gate.py            the checks, verdict, and CLI (python -m gate)
   evaluate.py        results table, false positives, measured median check time
@@ -244,6 +311,64 @@ first (18 of 19 cases failed on the old gate), and passes now. Fixed 10 of 11 (H
 - M4 open and disclosed: negation flips pass (Limitations 3 and 4), pinned by a test.
 
 Cost, measured by `evaluate.py`: recall stayed 240/240 and grounded false positives stayed 0/149. The new paraphrase split blocks 2/15 accurate rewordings, both synonym swaps (Limitation 11).
+
+## Architecture
+
+| Path | Role | Lines |
+|---|---|---|
+| `gate.py` | The checks, the verdict and the command line entry point | 767 |
+| `evaluate.py` | The oracle: results table, false positives and measured median check time | 175 |
+| `build_corpus.py` | Regenerates the synthetic corpus and eval set deterministically | 680 |
+| `mutants.py` | Mutation check: removes one defense per scratch copy and requires a red test file | 72 |
+| `PROOF.json` | Proof pack manifest: verify command and expected line | 11 |
+| `AGENTS.md` | Agent verification contract | 13 |
+| `RED-RUN-REVIEW.txt` | The hostile review findings that drove the hostile tests | 24 |
+| `.github/workflows/ci.yml` | CI workflow | 41 |
+| `tests/test_gate.py` | Unit tests for the gate | 312 |
+| `tests/test_corpus.py` | Corpus tests | 70 |
+| `tests/test_evaluate.py` | Evaluator tests | 76 |
+| `tests/test_mutation.py` | Mutation tests by monkeypatching | 83 |
+| `tests/test_hostile.py` | Hostile-review tests | 139 |
+| `tests/test_redteam.py` | Red-team tests that pin the documented limits | 483 |
+| `tests/test_readme.py` | README sync tests | 42 |
+| `corpus/` | Synthetic policy docs, eval.jsonl and paraphrase.jsonl | none: directory |
+
+Data flow:
+
+1. `build_corpus.py` writes the synthetic docs, `eval.jsonl` and `paraphrase.jsonl` into `corpus/`.
+2. `evaluate.py` runs `gate.py` over each labeled answer with its retrieved doc IDs and compares each verdict with its label.
+3. `evaluate.py` prints the table, the false-positive rows and the median time, and exits 0 only when no ungrounded answer passes and no grounded answer is blocked.
+4. `mutants.py` removes one defense at a time from a scratch copy and requires a test file to go red.
+
+## Test and mutation evidence
+
+Measured on 2026-10-25 on macOS by running both oracles from the repo root. Each exited with code zero (rc=0). The pass line of `python3 evaluate.py`:
+
+```text
+| Ungrounded total | 240/240 |
+```
+
+The last lines of `python3 evaluate.py`:
+
+```text
+| False positives (paraphrase split) | 2/15 |
+
+Median per-answer check time: 0.754 ms over 389 answers (measured on this run)
+```
+
+Last line of `python3 mutants.py`:
+
+```text
+mutants killed 16/16
+```
+
+## Change log
+
+| Date | Change | Oracle after |
+|---|---|---|
+| 2026-10-25 | Additive restructuring to the README standard: sections added, no old line altered | `python3 evaluate.py` pass line `\| Ungrounded total \| 240/240 \|`; `python3 mutants.py` last line `mutants killed 16/16` |
+| 2026-10-04 | Hostile review fixes (date from the Hostile review section) | none: no oracle output was recorded for that review in this change log |
+| 2026-10-02 | Repo opened (date of the first commit) | none: no oracle output was recorded for that date |
 
 ## License
 
