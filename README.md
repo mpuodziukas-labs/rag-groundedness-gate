@@ -2,6 +2,8 @@
 
 Proves: RAG evaluation and groundedness guardrails. Verify in 60s: `python3 evaluate.py`.
 
+Where this fits: OWASP LLM Top 10 2025 LLM09 Misinformation; NIST AI RMF function MEASURE. Sources in SOURCES.md.
+
 ![CI](https://github.com/mpuodziukas-labs/rag-groundedness-gate/actions/workflows/ci.yml/badge.svg)
 
 The title line of the earlier README, kept as written:
