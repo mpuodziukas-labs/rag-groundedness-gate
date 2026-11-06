@@ -24,7 +24,8 @@ Usage:
     python -m gate ANSWER_FILE --corpus corpus/docs --retrieved POL-01,POL-02
     echo "..." | python -m gate - --retrieved POL-01
 
-Prints a JSON verdict with per-sentence reasons (at most 200 sentences are
+Prints a JSON verdict with a PASS or REFUSE decision, the fixed refusal message on
+REFUSE, and per-sentence reasons (at most 200 sentences are
 listed; the verdict always covers all of them).
 Exit codes: 0 pass, 1 blocked, 2 usage error.
 """
@@ -56,6 +57,9 @@ UNSUPPORTED_CLAIM = "claim_not_in_quote"
 EMPTY_CLAIM = "empty_claim"
 MIXED_SCRIPT = "mixed_script_text"
 EMPTY_ANSWER = "empty_answer"
+
+PASS, REFUSE = "PASS", "REFUSE"
+REFUSAL_MESSAGE = "I cannot answer this from the retrieved sources."
 
 # Failure class (used by the eval set) -> the reason code that must catch it.
 CLASS_REASON: dict[str, str] = {
@@ -658,10 +662,16 @@ class Verdict:
     def blocked(self) -> bool:
         return bool(self.answer_reasons) or any(not s.ok for s in self.sentences)
 
+    @property
+    def decision(self) -> str:
+        return REFUSE if self.blocked else PASS
+
     def to_dict(self) -> dict[str, Any]:
         shown = self.sentences[:MAX_REPORTED_SENTENCES]
         return {
             "verdict": "blocked" if self.blocked else "pass",
+            "decision": self.decision,
+            "refusal": REFUSAL_MESSAGE if self.blocked else None,
             "sentence_count": len(self.sentences),
             "sentences_listed": len(shown),
             "answer_reasons": [vars(r) for r in self.answer_reasons],
@@ -722,6 +732,12 @@ def check_answer(answer: str, corpus: Mapping[str, str], retrieved: Iterable[str
         sentences.append(res)
     answer_reasons = [] if sentences else [Reason(EMPTY_ANSWER, "answer contains no sentences")]
     return Verdict(sentences, answer_reasons)
+
+
+def respond(answer: str, corpus: Mapping[str, str], retrieved: Iterable[str]) -> tuple[str, str]:
+    """Return (PASS, answer) when grounded, else (REFUSE, REFUSAL_MESSAGE); an ungrounded answer is never returned."""
+    verdict = check_answer(answer, corpus, retrieved)
+    return (REFUSE, REFUSAL_MESSAGE) if verdict.blocked else (PASS, answer)
 
 
 def load_corpus(path: str | Path) -> dict[str, str]:
