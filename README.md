@@ -77,6 +77,23 @@ echo 'Standard shipping costs $5.99 [doc:POL-03 "Standard shipping costs $5.99 a
 
 Python 3.10 or newer. `pytest` is the only thing to install, and only for tests.
 
+## Refusal
+
+The gate returns one of two decisions. PASS means every sentence cites a document that was
+retrieved, with a verbatim quote that supports the claim. REFUSE means anything else: no
+citation, a citation to a document outside the retrieved set or the corpus, an empty retrieved
+set, or an unsupported claim. On REFUSE the response is the fixed message "I cannot answer this
+from the retrieved sources." and the ungrounded text is never returned. Callers use
+`gate.respond(answer, corpus, retrieved)`, which returns the decision and the text to show, or
+read the `decision` field of the JSON verdict from the command line.
+
+## Verify
+
+```bash
+scripts/verify.sh              # runs the evaluation and the tests, checks the headline, exits 0 or 1
+scripts/verify.sh --selftest   # plants defects in a temporary copy and checks verify exits 1 on each
+```
+
 ## Results
 
 Eval set composition (generated):
@@ -265,6 +282,8 @@ Verdict shape:
 ```json
 {
   "verdict": "blocked",
+  "decision": "REFUSE",
+  "refusal": "I cannot answer this from the retrieved sources.",
   "sentence_count": 1,
   "sentences_listed": 1,
   "answer_reasons": [],
